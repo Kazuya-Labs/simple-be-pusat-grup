@@ -1,96 +1,82 @@
 // server/controllers/groupController.js
-const Wa = require("../models/wa");
-const Telegram = require("../models/telegram");
-const grupScrape = require("../scrape/groupWa");
-const scrapeTele = require("../scrape/telegram");
-// (Pastikan Anda sudah mengekspor searchController di file ini)
+
+const WaModel = require("../models/wa");
+const TelegramModel = require("../models/telegram");
+const scrapeWhatsapp = require("../scrape/whatsapp");
+const scrapeTelegram = require("../scrape/telegram");
 
 /**
- * Controller untuk menambahkan Grup baru ke database.
- * Endpoint: POST /api/v1/groups
- * Data (Body): url, platform, category
+ * @desc    Tambah grup baru ke database
+ * @route   POST /api/v1/groups
+ * @access  Public (atau sesuaikan dengan middleware auth)
  */
 module.exports = async (req, res) => {
   try {
-    // 1. Ekstraksi Data dari Body
-    const {
-      url,
-      platform,
-      category,
-      // Asumsi field lain yang wajib ada di schema
-      country = "Indonesia"
-    } = req.body;
+    const { url, platform, category, country = "Indonesia" } = req.body;
 
-    // 2. Validasi Dasar Data Wajib
+    // Validasi input
     if (!url || !platform || !category) {
       return res.status(400).json({
         success: false,
-        message:
-          "Semua field wajib (URL, Platform, Kategori, Judul) harus diisi."
+        message: "Field wajib: url, platform, category."
       });
     }
 
     const normalizedPlatform = platform.toLowerCase();
-
-    // 3. Tentukan Model yang Akan Digunakan
     let GroupModel;
-    let detailGrup = null;
-    if (normalizedPlatform === "whatsapp") {
-      GroupModel = Wa;
-      detailGrup = await grupScrape(url);
-    } else if (normalizedPlatform === "telegram") {
-      GroupModel = Telegram;
-      detailGrup = await scrapeTele(url);
-    } else {
+    let groupDetails;
+
+    switch (normalizedPlatform) {
+      case "whatsapp":
+        GroupModel = WaModel;
+        groupDetails = await scrapeWhatsapp(url);
+        break;
+      case "telegram":
+        GroupModel = TelegramModel;
+        groupDetails = await scrapeTelegram(url);
+        break;
+      default:
+        return res.status(400).json({
+          success: false,
+          message: "Platform harus 'whatsapp' atau 'telegram'."
+        });
+    }
+
+    if (!groupDetails) {
       return res.status(400).json({
         success: false,
-        message: "Platform harus 'whatsapp' atau 'telegram'."
+        message: "URL tidak valid atau gagal di-*scrape*."
       });
     }
 
-    console.log(`detailGrup:`, detailGrup);
-    if (!detailGrup)
-      return res.status(400).json({
-        success: false,
-        message: "Url tidak valid"
-      });
-    // 4. Konstruksi Objek Data Baru
     const newGroupData = {
-      url: url,
+      url,
       platform: normalizedPlatform,
-      category: category,
-      judul: detailGrup.title,
-      imageUrl: detailGrup.imageUrl,
-      country: country
-      // Anda bisa menambahkan logic di sini untuk members: 1 (pembuat), dll.
-      // ... field lain sesuai skema Anda
+      category,
+      judul: groupDetails.title,
+      imageUrl: groupDetails.imageUrl,
+      country
     };
 
-    // 5. Simpan ke Database
     const newGroup = await GroupModel.create(newGroupData);
 
-    // 6. Kirim Respon Sukses
-    res.status(201).json({
-      // 201 Created
+    return res.status(201).json({
       success: true,
       message: `Grup ${platform} berhasil ditambahkan! Menunggu verifikasi.`,
       data: newGroup
     });
-  } catch (e) {
-    // 7. Penanganan Error
-    console.error("Error adding group:", e);
-    // Mongoose validation error handling (optional, tapi disarankan)
+  } catch (error) {
+    console.error("Error adding group:", error);
+
     let message = "Terjadi kesalahan server saat menyimpan grup.";
-    if (e.name === "ValidationError") {
-      message = `Data tidak valid: ${e.message}`;
+    if (error.name === "ValidationError") {
+      message = `Data tidak valid: ${error.message}`;
     }
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: message,
-      error: e.message
+      message,
+      error: error.message
     });
   }
 };
-
-// ... (Pastikan Anda tetap mengekspor fungsi searchController dan fungsi lain yang Anda buat)
