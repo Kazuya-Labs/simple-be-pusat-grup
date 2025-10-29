@@ -2,84 +2,81 @@
 const Wa = require("../models/wa");
 const Telegram = require("../models/telegram");
 
-const searchController = async (req, res) => {
+module.exports = async (req, res) => {
   try {
-    // 1. Ekstraksi Parameter
     const {
       country = "Indonesia",
       platform,
       category,
-      q: searchTerm // Ambil 'q' dari query dan beri alias 'searchTerm'
+      q: searchTerm
     } = req.query;
 
-    // --- Validasi Platform Wajib ---
-    if (
-      !platform ||
-      (platform.toLowerCase() !== "whatsapp" &&
-        platform.toLowerCase() !== "telegram")
-    ) {
+    // Validasi Platform
+    const platformLower = platform?.toLowerCase();
+    if (!platform || (platformLower !== "whatsapp" && platformLower !== "telegram")) {
       return res.status(400).json({
         success: false,
-        message:
-          "Parameter 'platform' wajib diisi dengan 'whatsapp' atau 'telegram'."
+        message: "Parameter 'platform' wajib diisi dengan 'whatsapp' atau 'telegram'."
       });
     }
 
-    // 2. Tentukan Model yang Akan Digunakan
-    const GroupModel = platform.toLowerCase() === "whatsapp" ? Wa : Telegram;
+    if (country && typeof country !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Parameter 'country' harus berupa string."
+      });
+    }
 
-    // 3. Konstruksi Objek Query Dinamis
+    const escapedSearchTerm = searchTerm?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const GroupModel = platformLower === "whatsapp" ? Wa : Telegram;
+
     const queryFilter = {};
-
-    // Filter Kategori
-    // Abaikan filter jika nilainya 'Semua' (default dari frontend) atau kosong
     if (category && category.toLowerCase() !== "semua") {
       queryFilter.category = category;
     }
-
-    // Filter Negara
-    // Abaikan filter jika nilainya 'global' (kecuali memang ingin membatasi global)
     if (country && country.toLowerCase() !== "global") {
       queryFilter.country = country;
     }
-
-    // Filter Pencarian Teks (Judul)
     if (searchTerm) {
-      // Menggunakan $regex untuk pencarian case-insensitive pada field 'judul'
-      queryFilter.judul = {
-        $regex: new RegExp(searchTerm, "i")
-      };
+      queryFilter.judul = { $regex: new RegExp(escapedSearchTerm, "i") };
     }
 
-    // 4. Eksekusi Query Database (Menggunakan Model yang Telah Dipilih)
-
     const results = await GroupModel.find(queryFilter);
+    if (!results.length) {
+      return res.status(404).json({
+        success: false,
+        message: `Data grup ${platform} tidak ditemukan.`
+      });
+    }
 
-    const response = results.map(v => ({
+    // Filter duplikat berdasarkan URL
+    const seenUrls = new Set();
+    const uniqueResults = results.filter(item => {
+      if (seenUrls.has(item.url)) return false;
+      seenUrls.add(item.url);
+      return true;
+    });
+
+    const response = uniqueResults.map(v => ({
       category: v.category,
-      country: v.country, // Perbaikan: v.cat menjadi v.country
+      country: v.country,
       judul: v.judul,
       imageUrl: v.imageUrl,
       url: v.url,
       platform: v.platform,
-      createdAt: v.createdAt // Perbaikan: Tambahkan titik dua (:)
+      createdAt: v.createdAt
     }));
 
-    // 5. Mengirim Respon Sukses
     res.status(200).json({
       success: true,
       message: `Data grup ${platform} berhasil diambil.`,
       data: response
     });
   } catch (e) {
-    // 6. Penanganan Error
     console.error("Database Error:", e);
     res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan server saat memproses permintaan.",
-      error: e.message
+      message: "Terjadi kesalahan server saat memproses permintaan."
     });
   }
 };
-
-module.exports = searchController;
