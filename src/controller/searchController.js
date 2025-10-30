@@ -11,15 +11,17 @@ module.exports = async (req, res) => {
       q: searchTerm
     } = req.query;
 
-    // Validasi Platform
+    // Validasi platform
     const platformLower = platform?.toLowerCase();
-    if (!platform || (platformLower !== "whatsapp" && platformLower !== "telegram")) {
+    const isValidPlatform = ["whatsapp", "telegram"].includes(platformLower);
+    if (!platform || !isValidPlatform) {
       return res.status(400).json({
         success: false,
         message: "Parameter 'platform' wajib diisi dengan 'whatsapp' atau 'telegram'."
       });
     }
 
+    // Validasi country
     if (country && typeof country !== "string") {
       return res.status(400).json({
         success: false,
@@ -27,8 +29,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    const escapedSearchTerm = searchTerm?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Siapkan model dan filter query
     const GroupModel = platformLower === "whatsapp" ? Wa : Telegram;
+    const escapedSearchTerm = searchTerm?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     const queryFilter = {};
     if (category && category.toLowerCase() !== "semua") {
@@ -41,7 +44,9 @@ module.exports = async (req, res) => {
       queryFilter.judul = { $regex: new RegExp(escapedSearchTerm, "i") };
     }
 
-    const results = await GroupModel.find(queryFilter);
+    // Ambil data dan urutkan berdasarkan createdAt terbaru
+    const results = await GroupModel.find(queryFilter).sort({ createdAt: -1 });
+
     if (!results.length) {
       return res.status(404).json({
         success: false,
@@ -57,24 +62,25 @@ module.exports = async (req, res) => {
       return true;
     });
 
-    const response = uniqueResults.map(v => ({
-      category: v.category,
-      country: v.country,
-      judul: v.judul,
-      imageUrl: v.imageUrl,
-      url: v.url,
-      platform: v.platform,
-      createdAt: v.createdAt
+    // Format respons
+    const response = uniqueResults.map(({ category, country, judul, imageUrl, url, platform, createdAt }) => ({
+      category,
+      country,
+      judul,
+      imageUrl,
+      url,
+      platform,
+      createdAt
     }));
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: `Data grup ${platform} berhasil diambil.`,
       data: response
     });
-  } catch (e) {
-    console.error("Database Error:", e);
-    res.status(500).json({
+  } catch (error) {
+    console.error("Database Error:", error);
+    return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat memproses permintaan."
     });
