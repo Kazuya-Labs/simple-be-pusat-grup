@@ -26,6 +26,14 @@ module.exports = async (req, res) => {
     let GroupModel;
     let groupDetails;
 
+    const alReady = await WaModel.findOne({ url });
+    if (alReady)
+      return res.status(400).json({
+        success: false,
+        message:
+          "Grup sudah didaftarkan sebelumnya jika ingin menaikan lagi silahkan hubungi telegram kami : @orewaKazuya"
+      });
+
     switch (normalizedPlatform) {
       case "whatsapp":
         GroupModel = WaModel;
